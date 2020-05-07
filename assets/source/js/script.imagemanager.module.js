@@ -3,10 +3,11 @@ var imageManagerModule = {
 	fieldId: null,
 	cropRatio: null,
 	cropViewMode: 1,
-	defaultImageId: null,
+	defaultImageId: [],
 	selectType: null, 
 	//current selected image
-	selectedImage: null,
+	selectedImage: [],
+	selectedActionImage: null,
 	//language
 	message: null,
 	//init imageManager
@@ -18,15 +19,27 @@ var imageManagerModule = {
 		
 		//preselect image if image-id isset
 		if(imageManagerModule.defaultImageId !== ""){
-			imageManagerModule.selectImage(imageManagerModule.defaultImageId);
+			var sFieldId = imageManagerModule.fieldId;
+			var idValue = $('#'+sFieldId, window.parent.document).val();
+			var idArr = idValue.split(',');
+			imageManagerModule.reSelectImage(idArr);
+			for(s in idArr){
+				imageManagerModule.getDetails(idArr[s]);
+			}
 		}
 		
 		//set selected after pjax complete
 		$('#pjax-mediamanager').on('pjax:complete', function() {
-			if(imageManagerModule.selectedImage !== null){
-				imageManagerModule.selectImage(imageManagerModule.selectedImage.id);
+			if( imageManagerModule.selectedImage.length ){
+				imageManagerModule.reSelectImage();
 			}
 		});
+	},
+	openPopup: function(){
+		$('#popup-video').fadeIn('fast');
+	},
+	closePopup: function(){
+		$('#popup-video').fadeOut('fast');
 	},
 	//filter result
 	filterImageResult: function(searchTerm){
@@ -35,13 +48,45 @@ var imageManagerModule = {
 		//set pjax
 		$.pjax({url: newUrl, container: "#pjax-mediamanager", push: false, replace: false, timeout: 5000, scrollTo:false});
 	},	
+	reSelectImage: function(idArr = []){
+		var images = idArr.length ? idArr : imageManagerModule.selectedImage;
+		for(s in images){
+			if(idArr.length){
+				$("#module-imagemanager .item-overview .item[data-key='"+images[s]+"']").toggleClass("selected");
+			}
+			else{
+				$("#module-imagemanager .item-overview .item[data-key='"+images[s].id+"']").toggleClass("selected");
+			}
+		}
+	},
 	//select an image
 	selectImage: function(id){
+		var multi = imageManagerModule.multi;
 		//set selected class
-		$("#module-imagemanager .item-overview .item").removeClass("selected");
-		$("#module-imagemanager .item-overview .item[data-key='"+id+"']").addClass("selected");
-		//get details
-		imageManagerModule.getDetails(id);
+		if(multi == '1'){
+			$("#module-imagemanager .item-overview .item[data-key='"+id+"']").toggleClass("selected");
+			if($("#module-imagemanager .item-overview .item[data-key='"+id+"']").hasClass('selected')){
+				imageManagerModule.getDetails(id);
+			}
+			else{
+				imageManagerModule.removeDetails(id);
+			}
+		}
+		else{
+			$("#module-imagemanager .item-overview .item").removeClass("selected");
+			$("#module-imagemanager .item-overview .item[data-key='"+id+"']").addClass("selected");
+			
+			if(imageManagerModule.selectedImage.length){
+				imageManagerModule.removeDetails();
+			}
+			if($('#popup-video').length){
+				var baseUrl = $('#baseUrl').html();
+				var fileName = $('#module-imagemanager > .row').find('.item.selected').find('.filename').html();
+				var fullFile = baseUrl + '/uploads/videos/' + fileName;
+				$('#module-imagemanager > .row .col-options .download').attr('href',fullFile);
+			}
+			imageManagerModule.getDetails(id);
+		}
 	},
 	//pick the selected image
 	pickImage: function(){
@@ -53,15 +98,34 @@ var imageManagerModule = {
 				var sFieldId = imageManagerModule.fieldId;
 				var sFieldNameId = sFieldId+"_name";
 				var sFieldImageId = sFieldId+"_image";
-				//set input data		
-				$('#'+sFieldId, window.parent.document).val(imageManagerModule.selectedImage.id);
-				$('#'+sFieldNameId, window.parent.document).val(imageManagerModule.selectedImage.fileName);
-				$('#'+sFieldImageId, window.parent.document).attr("src",imageManagerModule.selectedImage.image).parent().removeClass("hide");
-				//trigger change
-				parent.$('#'+sFieldId).trigger('change');
-				//show delete button
-				$(".delete-selected-image[data-input-id='"+sFieldId+"']", window.parent.document).removeClass("hide");
-				//close the modal
+
+				var child = $('#'+sFieldImageId, window.parent.document).parents('.image-child');
+				var parent = $('#'+sFieldImageId, window.parent.document).parents('.image-wrapper').removeClass('hide');
+				parent.empty();
+				var imageIdFieldVal = "";
+				var nameFieldVal = "";
+				for($i = 0; $i < imageManagerModule.selectedImage.length; $i++){
+					const currentImage = imageManagerModule.selectedImage[$i];
+					// var imageIdFieldVal = $('#'+sFieldId, window.parent.document).val() ? $('#'+sFieldId, window.parent.document).map(function(){ return $(this).val();}).get() : [];
+					//  = $('#'+sFieldNameId, window.parent.document).val() ? $('#'+sFieldNameId, window.parent.document).val() : '';
+					
+					imageIdFieldVal += $i != imageManagerModule.selectedImage.length -1 ? currentImage.id+ ',' : currentImage.id;
+					nameFieldVal += $i != imageManagerModule.selectedImage.length -1 ? currentImage.fileName+ ', ' : currentImage.fileName;
+					child.find('img').attr('src',currentImage.image);
+					child.removeClass('hide');
+					child.find('.delete-selected-image').attr('data-image-id', currentImage.id).attr('data-image-name', currentImage.fileName).removeClass('hide');
+					child.clone().appendTo(parent);
+				}
+
+				if(imageManagerModule.selectedImage.length === 0){
+					imageIdFieldVal = '';
+					nameFieldVal = '';
+					parent.addClass('hide');
+					child.addClass('hide');
+					child.clone().appendTo(parent);
+				}
+				$('#'+sFieldId, window.parent.document).val(imageIdFieldVal).trigger('change');
+				$('#'+sFieldNameId, window.parent.document).val(nameFieldVal).trigger('change');
 				window.parent.imageManagerInput.closeModal();
 				break;
 			//CKEditor selector
@@ -111,38 +175,47 @@ var imageManagerModule = {
 			//close editor
 			imageManagerModule.editor.close();
 			//check if isset image
-			if(imageManagerModule.selectedImage !== null){
+			if(imageManagerModule.selectedActionImage !== null){
 				//call action by ajax
 				$.ajax({
 					url: imageManagerModule.baseUrl+"/delete",
 					type: "POST",
 					data: {
-						ImageManager_id: imageManagerModule.selectedImage.id,
+						ImageManager_id: imageManagerModule.selectedActionImage.id,
 						_csrf: $('meta[name=csrf-token]').prop('content')
 					},
 					dataType: "json",
 					success: function (responseData, textStatus, jqXHR) {
+						console.log('hihi response', responseData);
 						//check if delete is true
 						if(responseData.delete === true){
+							imageManagerModule.removeDetails(imageManagerModule.selectedActionImage.id);
 							//delete item element
-							$("#module-imagemanager .item-overview .item[data-key='"+imageManagerModule.selectedImage.id+"']").remove(); 
+							$("#module-imagemanager .item-overview .item[data-key='"+imageManagerModule.selectedActionImage.id+"']").remove(); 
 							//add hide class to info block
 							$("#module-imagemanager .image-info").addClass("hide");
 							//set selectedImage to null
-							imageManagerModule.selectedImage = null;
+							imageManagerModule.selectedActionImage = null;
 							//close edit
 						}else{
-							alert("Error: item is not deleted");
+							alert("有商品或類別正使用這圖片／影片");
 						}
 					},
 					error: function (jqXHR, textStatus, errorThrown) {
-						alert("Error: can't delete item");
+						// alert("Error: can't delete item");
+						alert("有商品或類別正使用這圖片／影片");
 					}
 				});
 			}else{
 				alert("Error: image can't delete, no image isset set");
 			}
 		}
+	},
+	removeDetails: function(id = imageManagerModule.selectedImage[0].id) {
+		var index = imageManagerModule.selectedImage.findIndex(function(o){
+			return o.id === id;
+	   })
+	   if (index !== -1) imageManagerModule.selectedImage.splice(index, 1);
 	},
 	//get image details
 	getDetails: function(id, pickAfterGetDetails){
@@ -154,12 +227,14 @@ var imageManagerModule = {
 			type: "POST",
 			data: {
 				ImageManager_id: id,
-				_csrf: $('meta[name=csrf-token]').prop('content')
+				_csrf: $('meta[name=csrf-token]').prop('content'),
+				type: imageManagerModule.manageMode
 			},
 			dataType: "json",
 			success: function (responseData, textStatus, jqXHR) {
 				//set imageManagerModule.selectedImage property
-				imageManagerModule.selectedImage = responseData; 
+				imageManagerModule.selectedImage.push(responseData);
+				imageManagerModule.selectedActionImage = responseData;
 				
 				//if need to pick image?
 				if(pickAfterGetDetails){
@@ -184,6 +259,7 @@ var imageManagerModule = {
 	},
 	//upload file
 	uploadSuccess: function(uploadResponse){
+		console.log('uploaded', uploadResponse);
 		//close editor
 		imageManagerModule.editor.close();
 		//reload pjax container
@@ -206,13 +282,13 @@ var imageManagerModule = {
 		//open cropper
 		openCropper: function(){
 			//check if isset image
-			if(imageManagerModule.selectedImage !== null){
+			if(imageManagerModule.selectedActionImage !== null){
 				//call action by ajax
 				$.ajax({
 					url: imageManagerModule.baseUrl+"/get-original-image",
 					type: "POST",
 					data: {
-						ImageManager_id: imageManagerModule.selectedImage.id,
+						ImageManager_id: imageManagerModule.selectedActionImage.id,
 						_csrf: $('meta[name=csrf-token]').prop('content')
 					},
 					dataType: "json",
@@ -243,7 +319,7 @@ var imageManagerModule = {
 			//set propertie if not set
 			pickAfterCrop = pickAfterCrop !== undefined ? pickAfterCrop : false;
 			//check if isset image
-			if(imageManagerModule.selectedImage !== null){
+			if(imageManagerModule.selectedActionImage !== null){
 				//set image in cropper
 				var oCropData = $('#module-imagemanager > .row .col-image-editor .image-cropper .image-wrapper img#image-cropper').cropper("getData");
 				//call action by ajax
@@ -251,7 +327,7 @@ var imageManagerModule = {
 					url: imageManagerModule.baseUrl+"/crop",
 					type: "POST",
 					data: {
-						ImageManager_id: imageManagerModule.selectedImage.id,
+						ImageManager_id: imageManagerModule.selectedActionImage.id,
 						CropData: oCropData,
 						_csrf: $('meta[name=csrf-token]').prop('content')
 					},
@@ -261,11 +337,12 @@ var imageManagerModule = {
 						if(responseData !== null){
 							//if pickAfterCrop is true? select directly else
 							if(pickAfterCrop){
+								imageManagerModule.removeDetails(imageManagerModule.selectedActionImage.id);
 								imageManagerModule.getDetails(responseData, true);
 							//else select the image only
 							}else{
 								//set new image
-								imageManagerModule.selectImage(responseData);
+								//imageManagerModule.selectImage(responseData);
 								//reload pjax container
 								$.pjax.reload('#pjax-mediamanager', {push: false, replace: false, timeout: 5000, scrollTo: false});
 							}
@@ -280,15 +357,51 @@ var imageManagerModule = {
 			}else{
 				alert("Error: image can't crop, no image isset set");
 			}
-		}
-	}
+		},
+	},
+	download: function() {
+		var baseUrl = $('#baseUrl').html();
+		// var fileName = $('#module-imagemanager > .row').find('.item.selected').find('.filename').html();
+		var fileName = imageManagerModule.selectedActionImage.fileName;
+
+		var fullFile = baseUrl + '/uploads/videos/' + fileName;
+		$('#module-imagemanager > .row .col-options .download').attr('href',fullFile);
+	},
+	// openLoading: function() {
+	// 	$('#loading').fadeIn('fast');
+	// }
 };
 
 $(document).ready(function () {
 	//init Image manage
-	imageManagerModule.init();	
+	var player;
+
+	imageManagerModule.init();
+
+	$(document).on('click', '#popup-video .popup-close', function(e) {
+		player.pause();
+		imageManagerModule.closePopup();
+	})
 	//on click select item (open view)
-	$(document).on("click", "#module-imagemanager .item-overview .item", function (){
+	// $(document).on('click', '#module-imagemanager .item-overview .popupVideo', function(e) {
+		// e.stopPropagation();
+		
+		// var fileName = $(this).parents('.thumbnail').find('.filename').html();
+		// var fullFile = $('#baseUrl').html() + '/uploads/videos/' + fileName;
+		// $('#my-video').find('video').find('source').attr('src',fullFile);
+		// player = videojs('my-video');
+		// player.src({ src: fullFile});
+		// player.load();
+		// imageManagerModule.openPopup();
+		// player.play();
+
+		// player.on('ended',function(){
+		// 	setTimeout(function(){
+		// 		imageManagerModule.closePopup();
+		// 	},500);
+		// });
+	// });
+	$(document).on("click", "#module-imagemanager .item-overview .item", function (e){
 		//get id
 		var ImageManager_id = $(this).data("key");
 		//select image
@@ -328,7 +441,33 @@ $(document).ready(function () {
 	$( document ).on("keyup change", "#input-mediamanager-search", function() {
 		imageManagerModule.filterImageResult($(this).val());
 	});
-	
+	$(document).on('click', "#module-imagemanager .image-info .preview-video", function(e){
+		e.stopPropagation();
+		
+		var fileName = imageManagerModule.selectedActionImage.fileName;
+		var fullFile = $('#baseUrl').html() + '/uploads/videos/' + fileName;
+		$('#my-video').find('video').find('source').attr('src',fullFile);
+		player = videojs('my-video');
+		player.src({ src: fullFile});
+		player.load();
+		imageManagerModule.openPopup();
+		player.play();
+
+		player.on('ended',function(){
+			setTimeout(function(){
+				imageManagerModule.closePopup();
+			},500);
+		});
+	});
+
+	// $(document).on('click', "#module-imagemanager .pagination a", function() {
+	// 	imageManagerModule.openLoading();
+	// });
+
+	$(document).on('click', "#module-imagemanager .image-info .download", function (){
+		imageManagerModule.download();
+		return false;
+	});
 });
 
 /*

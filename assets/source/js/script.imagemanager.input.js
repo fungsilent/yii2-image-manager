@@ -2,6 +2,7 @@ var imageManagerInput = {
 	baseUrl: null,
 	//language
 	message: null,
+	manageMode: null,
 	//init imageManagerInput
 	init: function(){
 		//create modal
@@ -18,9 +19,11 @@ var imageManagerInput = {
 						sModalHtml += '<div class="modal-header">';
 							sModalHtml += '<button aria-hidden="true" data-dismiss="modal" class="close" type="button">&times;</button>';
 							sModalHtml += '<h4>Image manager</h4>';
+							//sModalHtml += '<ul id="modal-tab" class="nav nav-tabs"><li class="active"><a>Images</a></li><li><a>Video</a></li></ul>';
 						sModalHtml += '</div>';
 						sModalHtml += '<div class="modal-body">';
-							sModalHtml += '<iframe src="#"></iframe>';
+							sModalHtml += '<iframe id="iframe-image"></iframe>';
+							//sModalHtml += '<iframe src="#" id="iframe-video"></iframe>';
 						sModalHtml += '</div>';
 					sModalHtml += '</div>';
 				sModalHtml += '</div>';
@@ -30,7 +33,7 @@ var imageManagerInput = {
 		}
 	},
 	//open media manager modal
-	openModal: function(inputId, aspectRatio, cropViewMode){
+	openModal: function(inputId, aspectRatio, cropViewMode, multi, manageMode){
 		//get selected item
 		var iImageId = $("#"+inputId).val();
 		var srcImageIdQueryString = "";
@@ -39,9 +42,9 @@ var imageManagerInput = {
 		}
 		//create iframe url
 		var queryStringStartCharacter = ((imageManagerInput.baseUrl).indexOf('?') == -1) ? '?' : '&';
-		var imageManagerUrl = imageManagerInput.baseUrl+queryStringStartCharacter+"view-mode=iframe&input-id="+inputId+"&aspect-ratio="+aspectRatio+"&crop-view-mode="+cropViewMode+srcImageIdQueryString;
+		var imageManagerUrl = imageManagerInput.baseUrl+queryStringStartCharacter+"view-mode=iframe&input-id="+inputId+"&aspect-ratio="+aspectRatio+"&crop-view-mode="+cropViewMode+srcImageIdQueryString+"&multi="+multi+"&manage-mode="+manageMode;
 		//set iframe path
-		$("#modal-imagemanager iframe").attr("src",imageManagerUrl);
+		$("#modal-imagemanager #iframe-image").attr("src",imageManagerUrl);
                 //set translation title for modal header
                 $("#modal-imagemanager .modal-dialog .modal-header h4").text(imageManagerInput.message.imageManager); 
 		//open modal
@@ -52,7 +55,7 @@ var imageManagerInput = {
 		$("#modal-imagemanager").modal("hide");
 	},
 	//delete picked image
-	deletePickedImage: function(inputId){
+	deletePickedImage: function(inputId, imageId){
 		//remove value of the input field
 		var sFieldId = inputId;
 		var sFieldNameId = sFieldId+"_name";
@@ -63,16 +66,42 @@ var imageManagerInput = {
 			if(confirm(imageManagerInput.message.detachWarningMessage) == false){
 				return false;
 			}
-		}		
-		//set input data		
-		$('#'+sFieldId).val("");
-		$('#'+sFieldNameId).val("");
+		}
+
+		if($('.open-modal-imagemanager[data-input-id="'+inputId+'"]').data('multiple') == 1){
+			var idValue = $('#'+sFieldId).val();
+			var nameValue = $('#'+sFieldNameId).val();
+
+			var nameArr = nameValue.split(',');
+			var index = $(".delete-selected-image[data-input-id='"+inputId+"'][data-image-id='"+imageId+"']").parents('.image-child').index();
+			nameArr.splice(index,1);
+			var nameString = "";
+			for($i = 0; $i < nameArr.length; $i ++){
+				nameString += nameArr.length != $i + 1 ? nameArr[$i] + ',' : nameArr[$i];
+			}
+			var idArr = idValue.split(',');
+			idArr.splice(index,1);
+
+			$('#'+sFieldId).val(idArr);
+			$('#'+sFieldNameId).val(nameString);
+
+			var parent = $(".delete-selected-image[data-input-id='"+inputId+"']").parents('.image-wrapper');
+			var childs_lth = parent.children().length;
+			if(childs_lth > 1){
+				$(".delete-selected-image[data-input-id='"+inputId+"'][data-image-id='"+imageId+"']").parents('.image-wrapper').find('.image-child').eq(index).remove();
+			}
+			else{
+				$(".delete-selected-image[data-input-id='"+inputId+"']").parents('.image-wrapper').addClass('hide');
+			}
+		}
+		else{
+			$('#'+sFieldId).val("");
+			$('#'+sFieldNameId).val("");
+			$('#'+sImagePreviewId).attr("src","").parents('.image-wrapper').addClass('hide');
+			$(".delete-selected-image[data-input-id='"+inputId+"']").addClass("hide");
+		}
 		//trigger change
 		$('#'+sFieldId).trigger("change");
-		//hide image
-		$('#'+sImagePreviewId).attr("src","").parent().addClass("hide");	
-		//delete hide class
-		$(".delete-selected-image[data-input-id='"+inputId+"']").addClass("hide");
 	}
 };
 
@@ -85,14 +114,18 @@ $(document).ready(function () {
 		var aspectRatio = $(this).data("aspect-ratio");
 		var cropViewMode = $(this).data("crop-view-mode");
 		var inputId = $(this).data("input-id");
+		var multi = $(this).data('multiple');
+		var manageMode = $(this).data('manage-mode');
 		//open selector id
-		imageManagerInput.openModal(inputId, aspectRatio, cropViewMode);
+		imageManagerInput.openModal(inputId, aspectRatio, cropViewMode, multi, manageMode);
 	});	
 	
 	//delete picked image
 	$(document).on("click", ".delete-selected-image", function () {
 		var inputId = $(this).data("input-id");
+		var imageId = $(this).data('image-id');
+
 		//open selector id
-		imageManagerInput.deletePickedImage(inputId);
+		imageManagerInput.deletePickedImage(inputId, imageId);
 	});	
 });

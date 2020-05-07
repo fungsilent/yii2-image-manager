@@ -44,35 +44,41 @@ class ImageManagerSearch extends ImageManager
     public function search($params)
     {
         $query = ImageManager::find();
+        if($params['manage-mode'] == 'video')
+        {
+            $query = ImageManager::find()->where(['not', ['video' => null]]);
+        }
+        else{
+			$query = ImageManager::find()->where(['IS','video', null]);
+		}
 
         // add conditions that should always apply here
 
         $dataProvider = new ActiveDataProvider([
             'query' => $query,
 			'pagination' => [
-				'pagesize' => 100,
+				'pagesize' => 50,
 			],
 			'sort'=> ['defaultOrder' => ['created'=>SORT_DESC]]
         ]);
 
         $this->load($params);
-
         if (!$this->validate()) {
             // uncomment the following line if you do not want to return any records when validation fails
             // $query->where('0=1');
-            return $dataProvider;
         }
 
         // Get the module instance
         $module = Module::getInstance();
 
-        if ($module->setBlameableBehavior) {
-            $query->andWhere(['createdBy' => Yii::$app->user->id]);
-        }
+        // if ($module->setBlameableBehavior) {
+        //     $query->andWhere(['createdBy' => Yii::$app->user->id]);
+        // }
 
-        $query->orFilterWhere(['like', 'fileName', $this->globalSearch])
-            ->orFilterWhere(['like', 'created', $this->globalSearch])
-			->orFilterWhere(['like', 'modified', $this->globalSearch]);
+        if($params['manage-mode'] == 'video')
+            $query->andFilterWhere(['like', 'video', $this->globalSearch]);
+        else
+            $query->andFilterWhere(['like', 'fileName', $this->globalSearch]);
 
         return $dataProvider;
     }

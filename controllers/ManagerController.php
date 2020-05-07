@@ -19,13 +19,15 @@ use Imagine\Image\Box;
 use Imagine\Image\Palette\RGB;
 use Imagine\Image\Point;
 use noam148\imagemanager\Module;
+use app\models\Video;
+
+$params = require \Yii::$app->basePath.'/config/params.php';
 
 /**
  * Manager controller for the `imagemanager` module
  * @property $module Module
  */
 class ManagerController extends Controller {
-
 	/**
 	 * @inheritdoc
 	 */
@@ -54,7 +56,7 @@ class ManagerController extends Controller {
 	 * @return mixed
 	 */
 	public function actionIndex() {
-        //set asset
+		//set asset
 		ImageManagerModuleAsset::register($this->view);	
         
 		//get iframe parameters
@@ -64,6 +66,8 @@ class ManagerController extends Controller {
 		$cropAspectRatio = Yii::$app->request->get("aspect-ratio");
 		$cropViewMode = Yii::$app->request->get("crop-view-mode", 1);
 		$defaultImageId = Yii::$app->request->get("image-id");
+		$manageMode = Yii::$app->request->get("manage-mode") ? Yii::$app->request->get("manage-mode") : 'image';
+		$multi = Yii::$app->request->get('multi') ? Yii::$app->request->get('multi') : '0';
 
 		//set blank layout if viewMode = iframe
 		if ($viewMode == "iframe") {
@@ -93,17 +97,21 @@ class ManagerController extends Controller {
 		$this->view->registerJs("imageManagerModule.message = " . Json::encode([
 					'deleteMessage' => Yii::t('imagemanager', 'Are you sure you want to delete this image?'),
 				]) . ";", 3);
+		$this->view->registerJs("imageManagerModule.manageMode = '" . $manageMode . "';", 3);
+		$this->view->registerJs("imageManagerModule.multi = '" . $multi ."';", 3);
+
 
 		$searchModel = new ImageManagerSearch();
 		$dataProvider = $searchModel->search(Yii::$app->request->queryParams);
 
 		//render template
 		return $this->render(
-						'index', [
-					'searchModel' => $searchModel,
-					'dataProvider' => $dataProvider,
-					'viewMode' => $viewMode,
-					'selectType' => $selectType,
+			'index', [
+			'searchModel' => $searchModel,
+			'dataProvider' => $dataProvider,
+			'viewMode' => $viewMode,
+			'selectType' => $selectType,
+			'manageMode' => $manageMode
 		]);
 	}
 
@@ -113,6 +121,9 @@ class ManagerController extends Controller {
 	 * @return mixed
 	 */
 	public function actionUpload() {
+	
+		global $params;
+		$env = constant('YII_ENV');
         //set response header
         Yii::$app->getResponse()->format = Response::FORMAT_JSON;
         // Check if the user is allowed to upload the image
@@ -128,11 +139,11 @@ class ManagerController extends Controller {
 		Yii::$app->controller->enableCsrfValidation = false;
 		//return default
 		$return = $_FILES;
+
 		//set media path
 		$sMediaPath = \Yii::$app->imagemanager->mediaPath;
 		//create the folder
 		BaseFileHelper::createDirectory($sMediaPath);
-
 		//check file isset
 		if (isset($_FILES['imagemanagerFiles']['tmp_name'])) {
 			//loop through each uploaded file
@@ -141,20 +152,59 @@ class ManagerController extends Controller {
 				$sFileName = $_FILES['imagemanagerFiles']['name'][$key];
 				$sFileExtension = pathinfo($sFileName, PATHINFO_EXTENSION);
 				$iErrorCode = $_FILES['imagemanagerFiles']['error'][$key];
-				//if uploaded file has no error code  than continue;
-				if ($iErrorCode == 0) { 
-					//create a file record
+				$sFileType = $_FILES['imagemanagerFiles']['type'][$key];
+				if(strpos($sFileType,'video') !== false){
+					$sMediaPath = \Yii::getAlias('@webroot').'/uploads/videos/';
+					if(!file_exists(\Yii::getAlias('@webroot').'/uploads/videos/')){
+						// BaseFileHelper::createDirectory($sMediaPath);
+						mkdir(\Yii::getAlias('@webroot').'/uploads/videos', 0777);
+					}
+					$rawFileName = str_replace('.'.$sFileExtension,'',$sFileName);
+					$sHashFileName = str_replace("_", "-", $rawFileName.'.jpg');
+					$rawVideoFile = str_replace("_", "-", $rawFileName.'.'.$sFileExtension);
+					$finalPath = \Yii::getAlias('@webroot').'/uploads/videos/'.$rawVideoFile;
+					move_uploaded_file($sTempFile, $sMediaPath . $rawVideoFile);
 					$model = new ImageManager();
-					$model->fileName = str_replace("_", "-", $sFileName);
+					$model->fileName = $sHashFileName;
 					$model->fileHash = Yii::$app->getSecurity()->generateRandomString(32);
-					//if file is saved add record
-					if ($model->save()) {
-						//move file to dir
-						$sSaveFileName = $model->id . "_" . $model->fileHash . "." . $sFileExtension;
-						//move_uploaded_file($sTempFile, $sMediaPath."/".$sFileName);
-						//save with Imagine class
-						Image::getImagine()->open($sTempFile)->save($sMediaPath . "/" . $sSaveFileName);
+					$model->video = $rawVideoFile;
+
+					$ffmpegBin = $params[$env]['ffmpeg'];
+					$ffprobeBin = $params[$env]['ffprobe'];
+
+					if($model->save()) {
+						$sMediaPath = \Yii::getAlias('@webroot').'/uploads/images/';
+						$ffmpeg = \FFMpeg\FFMpeg::create([
+							'ffmpeg.binaries'  => $ffmpegBin, 
+							'ffprobe.binaries' => $ffprobeBin
+						]);
+						$video = $ffmpeg->open($finalPath);
+						$video
+							->filters()
+							->resize(new \FFMpeg\Coordinate\Dimension(1280, 720))
+							->synchronize();
+						$video
+							->frame(\FFMpeg\Coordinate\TimeCode::fromSeconds(1))
+							->save($sMediaPath.$model->id.'_'.$model->fileHash.'.jpg');
 						$bSuccess = true;
+					}
+				}
+				else{
+					//if uploaded file has no error code  than continue;
+					if ($iErrorCode == 0) { 
+						//create a file record
+						$model = new ImageManager();
+						$model->fileName = str_replace("_", "-", $sFileName);
+						$model->fileHash = Yii::$app->getSecurity()->generateRandomString(32);
+						//if file is saved add record
+						if ($model->save()) {
+							//move file to dir
+							$sSaveFileName = $model->id . "_" . $model->fileHash . "." . $sFileExtension;
+							//move_uploaded_file($sTempFile, $sMediaPath."/".$sFileName);
+							//save with Imagine class
+							Image::getImagine()->open($sTempFile)->save($sMediaPath . "/" . $sSaveFileName);
+							$bSuccess = true;
+						}
 					}
 				}
 			}
@@ -340,18 +390,16 @@ class ManagerController extends Controller {
 		//get post
 		$ImageManager_id = Yii::$app->request->post("ImageManager_id");
 		//get details
+		$type = Yii::$app->request->post('type');
 		$model = $this->findModel($ImageManager_id);
 		//set return details
 		$return['id'] = $model->id;
-		$return['fileName'] = $model->fileName;
+		$return['fileName'] = $type == 'video' ? $model->video : $model->fileName;
 		$return['created'] = Yii::$app->formatter->asDate($model->created);
 		$return['fileSize'] = $model->imageDetails['size'];
 		$return['dimensionWidth'] = $model->imageDetails['width'];
 		$return['dimensionHeight'] = $model->imageDetails['height'];
-		$return['image'] = \Yii::$app->imagemanager->getImagePath($model->id, 400, 400, "inset");
-		//add extra URL argument to prevent browser caching
-		$return['image'] .= (strpos($return['image'], '?') === false ? '?' : '&' ) . "t=" . time();
-
+		$return['image'] = \Yii::$app->imagemanager->getImagePath($model->id, 400, 400, "inset") . "?t=" . time();
 		//return json encoded
 		return $return;
 	}
@@ -395,7 +443,13 @@ class ManagerController extends Controller {
 		$ImageManager_id = Yii::$app->request->post("ImageManager_id");
 		//get details
 		$model = $this->findModel($ImageManager_id);
-
+		$sMediaPath = \Yii::$app->imagemanager->mediaPath;
+		if(isset($model->video) && $model->video != '')
+		{
+			unlink("uploads/videos/$model->video");
+		}
+		unlink($sMediaPath.'/'.$model->id.'_'.$model->fileHash.'.'.pathinfo($model->fileName, PATHINFO_EXTENSION));
+		
 		//delete record
 		if ($model->delete()) {
 			$return['delete'] = true;
